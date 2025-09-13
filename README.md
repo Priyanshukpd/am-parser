@@ -1,32 +1,74 @@
-# AM Parser (Python)
+# AM Parser - Mutual Fund Portfolio Management System
 
-Parse mutual fund Excel statements and extract portfolio into JSON using two approaches:
-- Manual parsing (schema-based with header mapping)
-- LLM parsing (provider-agnostic interface)
-
-Inspired conceptually by `am-trade-management`, but implemented in Python for portfolio extraction.
+A comprehensive Python system for parsing mutual fund Excel/CSV files and managing portfolio data with MongoDB persistence and REST API.
 
 ## Features
-- CLI with `parse-manual` and `parse-llm`
-- Pluggable header maps for different statement formats
-- Outputs normalized JSON schema
-- Dry-run and output to file
+- **Dual Parsing Approaches**: Manual parsing (schema-based) and LLM parsing  
+- **REST API**: FastAPI-based HTTP endpoints for portfolio management
+- **MongoDB Integration**: Complete CRUD operations with async support
+- **Docker Support**: Easy deployment with Docker Compose
+- **CLI Interface**: Command-line tools for batch processing
+- **Data Validation**: Pydantic models ensure data integrity
+
+## Quick Start
+
+### 1. Start Infrastructure
+```bash
+# Start MongoDB with Docker
+docker-compose up -d
+
+# Or use the convenience script
+.\start_mongodb.ps1
+```
+
+### 2. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Use the System
+
+#### Via REST API (Recommended)
+```bash
+# Start API server
+python start_api.py
+
+# Save portfolio data
+curl -X POST "http://127.0.0.1:8000/portfolios" \
+     -H "Content-Type: application/json" \
+     -d @data/mfextractedholdings/motilaloswalmf.json
+
+# API Documentation: http://127.0.0.1:8000/docs
+```
+
+#### Via CLI
+```bash
+# Save portfolio to database
+python -m am_app save-portfolio --input data/mfextractedholdings/motilaloswalmf.json
+
+# List all portfolios
+python -m am_app list-portfolios
+
+# Parse Excel files (manual parsing)
+python -m am_app parse --input sample.xlsx --method manual
+```
 
 ## Project Structure
 
 ```
 am-parser/
-├── am_app/             # 🆕 Unified application interface (recommended entry point)
-├── am_api/             # CLI interface module  
-├── am_services/        # Core parsing services and data models
-├── am_llm/             # LLM parsing functionality
-├── am_persistence/     # Database repository interfaces  
-├── am_common/          # Shared models and utilities
-├── am_configs/         # Configuration files
-├── am_parser/          # Backward compatibility wrapper (imports from external modules)
-├── data/               # Sample data files
-├── tests/              # Test files
-└── docs/               # Documentation
+├── am_app/             # � Unified application interface (CLI + programmatic)
+├── am_api/             # 🌐 REST API endpoints (FastAPI)  
+├── am_services/        # 🔧 Core parsing services
+├── am_persistence/     # 🗄️  Database services (MongoDB)
+├── am_llm/             # 🤖 LLM parsing functionality
+├── am_common/          # 📋 Shared models and utilities
+├── am_configs/         # ⚙️  Configuration files
+├── data/               # 📊 Sample data files
+├── mongo-init/         # 🐳 Database initialization scripts
+├── scripts/            # 🛠️  Utility scripts
+├── tests/              # 🧪 Test files
+└── docs/               # 📚 Documentation
 ```
 
 **Design Philosophy:**
