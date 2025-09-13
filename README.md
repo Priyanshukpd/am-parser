@@ -54,6 +54,10 @@ python -m am_app parse --input .\data\samples\mutualfund_sample.csv --method bot
 
 # Batch processing
 python -m am_app batch --input-dir .\data\samples\ --method manual --output-dir results\
+
+# Save mutual fund portfolio JSON to MongoDB
+python -m am_app save-portfolio --input .\data\mfextractedholdings\motilaloswalmf.json --dry-run
+python -m am_app save-portfolio --input .\data\mfextractedholdings\motilaloswalmf.json --mongo-uri mongodb://localhost:27017
 ```
 
 **Alternative interfaces:**
@@ -67,6 +71,7 @@ python -m am_parser parse-manual --input .\data\samples\mutualfund_sample.csv --
 
 ## Programmatic Usage
 
+### Portfolio Parsing
 ```python
 # Simple single-file parsing
 from am_app import parse_file
@@ -88,7 +93,64 @@ results = batch_parse(
 )
 ```
 
-For LLM parsing (optional):
+### Mutual Fund Data Persistence
+```python
+# Load and persist mutual fund portfolio JSON to MongoDB
+import json
+import asyncio
+from am_common import MutualFundPortfolio
+from am_persistence import create_mutual_fund_service
+
+async def save_portfolio():
+    # Load JSON data
+    with open("portfolio.json", 'r') as f:
+        data = json.load(f)
+    
+    # Convert to model
+    portfolio = MutualFundPortfolio(**data)
+    
+    # Save to MongoDB
+    service = create_mutual_fund_service()
+    portfolio_id = await service.save_portfolio(portfolio)
+    print(f"Saved with ID: {portfolio_id}")
+    
+    # Retrieve and query
+    retrieved = await service.get_portfolio(portfolio.mutual_fund_name, portfolio.portfolio_date)
+    stats = await service.get_fund_statistics(portfolio.mutual_fund_name)
+    await service.close()
+
+asyncio.run(save_portfolio())
+```
+
+### Optional: MongoDB integration
+- Install MongoDB support:
+```powershell
+pip install -r requirements-mongo.txt
+```
+
+- Start MongoDB locally or use cloud instance
+- Use the mutual fund service:
+```python
+import asyncio
+from am_common import MutualFundPortfolio
+from am_persistence import create_mutual_fund_service
+
+async def main():
+    service = create_mutual_fund_service(
+        mongo_uri="mongodb://localhost:27017", 
+        db_name="mutual_funds"
+    )
+    
+    # Load and save portfolio
+    portfolio = MutualFundPortfolio(**json_data)
+    portfolio_id = await service.save_portfolio(portfolio)
+    
+    # Query and retrieve
+    stats = await service.get_fund_statistics(portfolio.mutual_fund_name)
+    await service.close()
+
+asyncio.run(main())
+```
 ```powershell
 # Set environment variables before running (optional)
 $env:LLM_PROVIDER = "openai"

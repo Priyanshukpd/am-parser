@@ -178,5 +178,69 @@ def analyze(input_file: str, sheet: Optional[str]):
         sys.exit(1)
 
 
+@cli.command()
+@click.option("--input", "-i", "input_file", required=True,
+              type=click.Path(exists=True, dir_okay=False),
+              help="Input JSON file with mutual fund data")
+@click.option("--mongo-uri", default="mongodb://localhost:27017",
+              help="MongoDB connection URI")
+@click.option("--db-name", default="mutual_funds", 
+              help="MongoDB database name")
+@click.option("--dry-run", is_flag=True,
+              help="Validate model without saving to MongoDB")
+def save_portfolio(input_file: str, mongo_uri: str, db_name: str, dry_run: bool):
+    """Save mutual fund portfolio JSON to MongoDB"""
+    
+    try:
+        import json
+        from am_common import MutualFundPortfolio
+        from am_persistence import create_mutual_fund_service
+        import asyncio
+        
+        click.echo(f"📁 Loading portfolio from: {input_file}")
+        
+        with open(input_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Convert to Pydantic model
+        portfolio = MutualFundPortfolio(**data)
+        
+        click.echo(f"✅ Loaded: {portfolio.mutual_fund_name}")
+        click.echo(f"📅 Date: {portfolio.portfolio_date}")
+        click.echo(f"📊 Holdings: {len(portfolio.portfolio_holdings)}")
+        
+        if dry_run:
+            click.echo("🔍 Dry run - model validation successful!")
+            mongo_doc = portfolio.to_mongo_document()
+            click.echo(f"📄 Would create MongoDB document with {len(mongo_doc)} fields")
+            return
+        
+        async def save_async():
+            service = create_mutual_fund_service(mongo_uri, db_name)
+            try:
+                click.echo(f"🔌 Connecting to MongoDB: {mongo_uri}")
+                portfolio_id = await service.save_portfolio(portfolio)
+                click.echo(f"✅ Saved to MongoDB with ID: {portfolio_id}")
+                
+                # Show some stats
+                stats = await service.get_fund_statistics(portfolio.mutual_fund_name)
+                if stats:
+                    click.echo(f"📊 Fund now has {stats['portfolio_count']} portfolio version(s)")
+                
+            except ImportError:
+                click.echo("❌ MongoDB support requires 'motor' package")
+                click.echo("💡 Install with: pip install motor")
+            except Exception as e:
+                click.echo(f"❌ Error saving to MongoDB: {e}")
+            finally:
+                await service.close()
+        
+        asyncio.run(save_async())
+        
+    except Exception as e:
+        click.echo(f"❌ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cli()
