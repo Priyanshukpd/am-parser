@@ -15,6 +15,7 @@ from am_common.job_models import (
 from am_services.job_queue_service import get_job_queue
 from am_services.file_upload_service import FileUploadService
 from am_persistence.file_upload_repository import FileUploadRepository
+from am_persistence import create_mutual_fund_service
 
 
 router = APIRouter(prefix="/jobs", tags=["Background Jobs"])
@@ -32,9 +33,13 @@ async def upload_excel_async(
     Returns immediately with job ID, processes in background
     """
     try:
-        # Initialize services
-        repo = FileUploadRepository("mongodb://admin:password123@localhost:27017", "mutual_funds")
-        upload_service = FileUploadService(repo)
+        # Initialize services with proper database connection
+        service_instance = create_mutual_fund_service(
+            mongo_uri="mongodb://admin:password123@localhost:27017",
+            db_name="mutual_funds"
+        )
+        repo = FileUploadRepository(service_instance.database)
+        upload_service = FileUploadService()  # Uses default directories
         job_queue = await get_job_queue()
         
         # Step 1: Upload and split Excel file (quick operation)
@@ -42,10 +47,18 @@ async def upload_excel_async(
         
         # Upload main file
         main_file_upload = await upload_service.save_uploaded_file(file)
+        
+        # Persist main file to database
+        await repo.create_file_upload(main_file_upload)
         print(f"✅ Main file uploaded: {main_file_upload.file_id}")
         
         # Split into sheets (quick operation)
-        sheet_files = await upload_service.split_excel_to_sheets(main_file_upload)
+        sheet_files = upload_service.split_excel_into_sheets(main_file_upload)
+        
+        # Persist sheet files to database
+        for sheet_file in sheet_files:
+            await repo.create_file_upload(sheet_file)
+        
         sheet_count = len(sheet_files)
         print(f"✅ Excel split into {sheet_count} sheets")
         
@@ -209,7 +222,7 @@ async def cancel_job(job_id: str):
 
 @router.get("/")
 async def list_jobs(
-    status: Optional[JobStatus] = None,
+    job_status: Optional[JobStatus] = None,
     user_id: Optional[str] = None,
     limit: int = 50
 ):
@@ -219,13 +232,13 @@ async def list_jobs(
         
         # Build query filter
         query_filter = {}
-        if status:
-            query_filter["status"] = status
+        if job_status:
+            query_filter["status"] = job_status
         if user_id:
             query_filter["user_id"] = user_id
         
         # Get jobs from database
-        collection = await job_queue.repo.get_collection(job_queue.collection_name)
+        collection = job_queue.mutual_fund_service.database[job_queue.collection_name]
         cursor = collection.find(query_filter).sort("created_at", -1).limit(limit)
         
         jobs = []

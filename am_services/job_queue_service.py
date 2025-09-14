@@ -215,7 +215,7 @@ class JobQueue:
                 raise ValueError(f"File not found: {file_id}")
             
             # Get all sheet files
-            sheet_files = await file_upload_repo.get_sheet_files(file_id)
+            sheet_files = await file_upload_repo.get_files_by_parent_id(file_id)
             total_sheets = len(sheet_files)
             
             progress = JobProgress(total_items=total_sheets, completed_items=0)
