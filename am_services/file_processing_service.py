@@ -235,7 +235,9 @@ class FileProcessingService:
         else:
             return self.am_app.parse_file(file_path, method=method)
     
-    async def get_file_status(self, file_id: str) -> Optional[Dict[str, Any]]:
+    async def _process_single_sheet(self, sheet_file: FileUpload, method: str = None) -> Optional[Dict[str, Any]]:
+        """Process a single sheet file (used by background jobs)"""
+        return await self._parse_and_save_sheet(sheet_file, method)
         """Get complete status information for a file and its sheets"""
         file_upload = await self.file_upload_repo.get_file_upload(file_id)
         if not file_upload:
