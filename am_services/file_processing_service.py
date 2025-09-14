@@ -237,7 +237,48 @@ class FileProcessingService:
     
     async def _process_single_sheet(self, sheet_file: FileUpload, method: str = None) -> Optional[Dict[str, Any]]:
         """Process a single sheet file (used by background jobs)"""
-        return await self._parse_sheet_file(sheet_file, method)
+        try:
+            # Parse the sheet file using AMApp
+            result = await self._parse_sheet_file(sheet_file, method)
+            
+            if result:
+                # Transform the parser result to MutualFundPortfolio format
+                portfolio_data = self._transform_to_mutual_fund_portfolio(result, sheet_file)
+                
+                # Convert result to MutualFundPortfolio object
+                portfolio = MutualFundPortfolio(**portfolio_data)
+                
+                # Use sheet_id as portfolio_id for proper tracking
+                portfolio_id = await self.mutual_fund_service.save_portfolio_with_id(
+                    portfolio, 
+                    custom_id=sheet_file.file_id  # Use sheet ID as portfolio ID
+                )
+                
+                print(f"✅ Portfolio saved with ID: {portfolio_id} (matches sheet ID: {sheet_file.file_id})")
+                
+                # Update sheet file status and metadata
+                metadata = {
+                    "portfolio_id": portfolio_id,
+                    "parsing_method": method,
+                    "holdings_count": portfolio_data.get("total_holdings", 0),
+                    "mutual_fund_name": portfolio_data.get("mutual_fund_name", "Unknown")
+                }
+                await self.file_upload_repo.update_processing_metadata(sheet_file.file_id, metadata)
+                await self.file_upload_repo.update_file_status(sheet_file.file_id, ProcessingStatus.PARSED)
+                
+                return {"portfolio_id": portfolio_id, "portfolio_data": portfolio_data}
+            else:
+                await self.file_upload_repo.update_file_status(
+                    sheet_file.file_id, ProcessingStatus.FAILED, "Failed to parse sheet data"
+                )
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error in _process_single_sheet: {e}")
+            await self.file_upload_repo.update_file_status(
+                sheet_file.file_id, ProcessingStatus.FAILED, str(e)
+            )
+            return None
         """Get complete status information for a file and its sheets"""
         file_upload = await self.file_upload_repo.get_file_upload(file_id)
         if not file_upload:
