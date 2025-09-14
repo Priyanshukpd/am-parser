@@ -11,6 +11,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from am_services import Portfolio, Fund, Holding, Totals, load_tabular
 
+# Import Together AI service if available
+try:
+    from .together_service import TogetherLLMService
+except ImportError:
+    TogetherLLMService = None
+
 
 class LLMClient:
     def structured_portfolio_from_table(self, table_rows: List[Dict[str, Any]], *, system_prompt: str) -> Dict[str, Any]:
@@ -95,6 +101,64 @@ class LLMParserService:
     model: Optional[str] = None
 
     def parse(self, file_path: str | Path, *, sheet: Optional[str | int] = None, dry_run: bool = False) -> Dict[str, Any]:
+        df = load_tabular(file_path, sheet=sheet)
+        
+        # Convert to table rows for processing
+        table_rows = df.to_dict('records')
+        
+        # Use heuristic LLM client for parsing
+        client = LLMClient()
+        system_prompt = f"Extract portfolio holdings from {file_path}"
+        
+        result = client.structured_portfolio_from_table(table_rows, system_prompt=system_prompt)
+        
+        if dry_run:
+            print("🔍 Dry run - would return:", result)
+            return result
+        
+        return result
+    
+    def parse_with_together_ai(self, file_path: str | Path, *, sheet: Optional[str | int] = None, 
+                              api_key: str = None, output_file: str = None, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Parse Excel file using Together AI LLM service
+        
+        Args:
+            file_path: Path to Excel file
+            sheet: Sheet name or index to process
+            api_key: Together AI API key
+            output_file: Optional output file path
+            dry_run: If True, don't make actual API calls
+            
+        Returns:
+            Extracted portfolio data
+        """
+        if not TogetherLLMService:
+            raise ImportError("Together AI service not available. Install with: pip install together")
+        
+        file_path = Path(file_path)
+        sheet_name = sheet if isinstance(sheet, str) else f"Sheet{sheet}" if sheet is not None else "Sheet1"
+        
+        if dry_run:
+            print(f"🔍 Dry run - would extract from {file_path}, sheet '{sheet_name}' using Together AI")
+            return {
+                "mutual_fund_name": f"Mock Fund from {file_path.name}",
+                "portfolio_date": "March 2025",
+                "total_holdings": 100,
+                "portfolio_holdings": [
+                    {"name_of_instrument": "Mock Stock", "isin_code": "MOCK123", "percentage_to_nav": "1.0%"}
+                ]
+            }
+        
+        # Initialize Together AI service
+        service = TogetherLLMService(api_key=api_key)
+        
+        # Extract portfolio data
+        return service.extract_portfolio_from_excel(
+            excel_file=str(file_path),
+            sheet_name=str(sheet_name),
+            output_file=output_file
+        )
         df = load_tabular(file_path, sheet=sheet)
         table_json = df.to_dict(orient="records")
         if dry_run:

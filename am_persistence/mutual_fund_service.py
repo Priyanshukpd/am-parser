@@ -61,6 +61,12 @@ class MutualFundService:
                 )
         return self._collection
     
+    @property
+    def database(self):
+        """Get the database instance"""
+        self._get_collection()  # Ensure database is initialized
+        return self._db
+    
     async def save_portfolio(self, portfolio: MutualFundPortfolio) -> str:
         """
         Save a mutual fund portfolio to MongoDB
@@ -95,6 +101,47 @@ class MutualFundService:
             result = await collection.insert_one(doc)
             return str(result.inserted_id)
     
+    async def save_portfolio_with_id(self, portfolio: MutualFundPortfolio, custom_id: str) -> str:
+        """
+        Save a mutual fund portfolio with a specific custom ID (to match sheet ID)
+        
+        Args:
+            portfolio: MutualFundPortfolio model instance
+            custom_id: Custom ID to use (e.g., sheet file ID)
+            
+        Returns:
+            str: The custom ID used for the document
+        """
+        collection = self._get_collection()
+        
+        # Convert to MongoDB document
+        doc = portfolio.to_mongo_document()
+        doc["updated_at"] = datetime.now().isoformat()
+        doc["_id"] = custom_id  # Use custom ID instead of auto-generated ObjectId
+        doc["sheet_id"] = custom_id  # Also store as separate field for queries
+        
+        try:
+            # Try to insert with custom ID
+            await collection.insert_one(doc)
+            print(f"✅ Portfolio inserted with custom ID: {custom_id}")
+            return custom_id
+        except Exception as e:
+            # If ID already exists, update the document
+            if "duplicate key" in str(e).lower():
+                doc.pop("_id")  # Remove _id for update
+                result = await collection.replace_one(
+                    {"_id": custom_id}, 
+                    doc
+                )
+                print(f"✅ Portfolio updated with custom ID: {custom_id}")
+                return custom_id
+            else:
+                # If other error, fall back to auto-generated ID
+                print(f"⚠️ Custom ID failed, using auto-generated: {e}")
+                doc.pop("_id", None)
+                result = await collection.insert_one(doc)
+                return str(result.inserted_id)
+    
     async def get_portfolio(self, fund_name: str, portfolio_date: str) -> Optional[MutualFundPortfolio]:
         """
         Retrieve a portfolio by fund name and date
@@ -121,22 +168,33 @@ class MutualFundService:
     
     async def get_portfolio_by_id(self, portfolio_id: str) -> Optional[MutualFundPortfolio]:
         """
-        Retrieve a portfolio by MongoDB document ID
+        Retrieve a portfolio by MongoDB document ID (supports both ObjectId and custom string IDs)
         
         Args:
-            portfolio_id: MongoDB document ID
+            portfolio_id: MongoDB document ID (ObjectId string or custom string)
             
         Returns:
             MutualFundPortfolio instance or None if not found
         """
-        from bson import ObjectId
         collection = self._get_collection()
         
         try:
-            doc = await collection.find_one({"_id": ObjectId(portfolio_id)})
+            # First try as string ID (for custom IDs)
+            doc = await collection.find_one({"_id": portfolio_id})
             if doc:
                 doc.pop("_id", None)
                 return MutualFundPortfolio(**doc)
+            
+            # If not found, try as ObjectId (for auto-generated IDs)
+            from bson import ObjectId
+            try:
+                doc = await collection.find_one({"_id": ObjectId(portfolio_id)})
+                if doc:
+                    doc.pop("_id", None)
+                    return MutualFundPortfolio(**doc)
+            except Exception:
+                pass
+                
         except Exception:
             pass
         return None

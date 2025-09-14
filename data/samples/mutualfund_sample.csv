@@ -1,6 +1,0 @@
-name,ticker,isin,sector,qty,mkt value,weight
-Alpha Corp,ALPH,INE000000001,Industrials,100,15000,10
-Beta Bank,BETA,INE000000002,Financials,200,25000,20
-Gamma Tech,GAMT,INE000000003,Technology,50,60000,48
-Delta Pharma,DEPH,INE000000004,Healthcare,75,25000,20
-Cash,,,,,5000,2

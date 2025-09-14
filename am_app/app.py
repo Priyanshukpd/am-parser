@@ -32,18 +32,20 @@ class AMApp:
                    sheet: Optional[str | int] = None,
                    header_map: Optional[str] = None,
                    show_preview: bool = False,
-                   dry_run: bool = False) -> Dict[str, Any]:
+                   dry_run: bool = False,
+                   api_key: Optional[str] = None) -> Dict[str, Any]:
         """
         Parse a mutual fund file using the specified method
         
         Args:
             file_path: Path to CSV/Excel file
-            method: "manual", "llm", or "both" (default: "manual")
+            method: "manual", "llm", "together", or "both" (default: "manual")
             output_file: Optional output JSON file path
             sheet: Excel sheet name or index
             header_map: Header mapping key for manual parsing
             show_preview: Show debug preview for manual parsing
             dry_run: Show prompt without LLM call (LLM parsing only)
+            api_key: API key for Together AI (if using "together" method)
             
         Returns:
             Parsed portfolio data as dictionary
@@ -53,10 +55,12 @@ class AMApp:
             return self._parse_manual(file_path, sheet, header_map, show_preview, output_file)
         elif method == "llm":
             return self._parse_llm(file_path, sheet, dry_run, output_file)
+        elif method == "together":
+            return self._parse_together_ai(file_path, sheet, api_key, dry_run, output_file)
         elif method == "both":
             return self._parse_both(file_path, sheet, header_map, show_preview, dry_run, output_file)
         else:
-            raise ValueError(f"Unknown method: {method}. Use 'manual', 'llm', or 'both'")
+            raise ValueError(f"Unknown method: {method}. Use 'manual', 'llm', 'together', or 'both'")
     
     def _parse_manual(self, file_path, sheet, header_map, show_preview, output_file):
         """Parse using manual/rule-based parser"""
@@ -76,6 +80,29 @@ class AMApp:
             self._write_output(result, output_file, suffix="_llm")
             
         return result
+    
+    def _parse_together_ai(self, file_path, sheet, api_key, dry_run, output_file):
+        """Parse using Together AI LLM service"""
+        try:
+            result = self.llm_parser.parse_with_together_ai(
+                file_path, 
+                sheet=sheet, 
+                api_key=api_key,
+                dry_run=dry_run,
+                output_file=output_file
+            )
+            
+            if output_file and not dry_run:
+                self._write_output(result, output_file, suffix="_together")
+                
+            return result
+        except ImportError as e:
+            print(f"❌ Together AI not available: {e}")
+            print("💡 Install with: pip install together")
+            raise
+        except Exception as e:
+            print(f"❌ Together AI parsing failed: {e}")
+            raise
     
     def _parse_both(self, file_path, sheet, header_map, show_preview, dry_run, output_file):
         """Parse using both methods and compare results"""

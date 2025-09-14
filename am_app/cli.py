@@ -27,9 +27,9 @@ def cli():
               type=click.Path(exists=True, dir_okay=False), 
               help="Input CSV/Excel file path")
 @click.option("--method", "-m", 
-              type=click.Choice(["manual", "llm", "both"]), 
+              type=click.Choice(["manual", "llm", "together", "both"]), 
               default="manual",
-              help="Parsing method: manual (rule-based), llm (AI-based), or both (compare)")
+              help="Parsing method: manual (rule-based), llm (AI-based), together (Together AI), or both (compare)")
 @click.option("--output", "-o", "output_file", 
               help="Output JSON file path")
 @click.option("--sheet", 
@@ -40,9 +40,11 @@ def cli():
               help="Show debug preview (manual parsing)")
 @click.option("--dry-run", is_flag=True, 
               help="Show prompt without LLM call (LLM parsing)")
+@click.option("--api-key", 
+              help="Together AI API key (for together method)")
 def parse(input_file: str, method: str, output_file: Optional[str], 
           sheet: Optional[str], header_map: Optional[str], 
-          show_preview: bool, dry_run: bool):
+          show_preview: bool, dry_run: bool, api_key: Optional[str]):
     """Parse a single mutual fund file"""
     
     app = AMApp()
@@ -55,7 +57,8 @@ def parse(input_file: str, method: str, output_file: Optional[str],
             sheet=sheet,
             header_map=header_map,
             show_preview=show_preview,
-            dry_run=dry_run
+            dry_run=dry_run,
+            api_key=api_key
         )
         
         if not output_file:
@@ -76,7 +79,7 @@ def parse(input_file: str, method: str, output_file: Optional[str],
 @click.option("--pattern", "-p", default="*.{csv,xlsx,xls}",
               help="File pattern to match in input directory (default: *.{csv,xlsx,xls})")
 @click.option("--method", "-m", 
-              type=click.Choice(["manual", "llm", "both"]), 
+              type=click.Choice(["manual", "llm", "together", "both"]), 
               default="manual",
               help="Parsing method")
 @click.option("--output-dir", "-o", 
@@ -85,6 +88,8 @@ def parse(input_file: str, method: str, output_file: Optional[str],
               help="Excel sheet name or index")
 @click.option("--header-map", 
               help="Header mapping key for manual parsing")
+@click.option("--api-key", 
+              help="Together AI API key (for together method)")
 def batch(input_dir: Optional[str], files: tuple, pattern: str,
           method: str, output_dir: Optional[str], 
           sheet: Optional[str], header_map: Optional[str]):
