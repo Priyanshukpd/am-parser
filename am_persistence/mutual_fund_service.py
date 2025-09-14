@@ -122,12 +122,15 @@ class MutualFundService:
         
         try:
             # Try to insert with custom ID
+            print(f"🔍 DEBUG: Attempting to insert with custom_id: {custom_id}")
             await collection.insert_one(doc)
             print(f"✅ Portfolio inserted with custom ID: {custom_id}")
             return custom_id
         except Exception as e:
+            print(f"❌ DEBUG: Insert failed with error: {type(e).__name__}: {str(e)}")
             # If ID already exists, update the document
             if "duplicate key" in str(e).lower():
+                print(f"🔄 DEBUG: Duplicate key detected, updating existing document")
                 doc.pop("_id")  # Remove _id for update
                 result = await collection.replace_one(
                     {"_id": custom_id}, 
@@ -138,9 +141,13 @@ class MutualFundService:
             else:
                 # If other error, fall back to auto-generated ID
                 print(f"⚠️ Custom ID failed, using auto-generated: {e}")
+                print(f"🔍 DEBUG: Error type: {type(e)}")
+                print(f"🔍 DEBUG: Full error: {str(e)}")
                 doc.pop("_id", None)
                 result = await collection.insert_one(doc)
-                return str(result.inserted_id)
+                auto_id = str(result.inserted_id)
+                print(f"❌ DEBUG: Used auto-generated ID instead: {auto_id}")
+                return auto_id
     
     async def get_portfolio(self, fund_name: str, portfolio_date: str) -> Optional[MutualFundPortfolio]:
         """

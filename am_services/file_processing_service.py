@@ -102,23 +102,12 @@ class FileProcessingService:
             # Parse the sheet file using AMApp
             result = await self._parse_sheet_file(sheet_file, method)
             
-            print(f"🔍 DEBUG: _parse_sheet_file returned: {result is not None}")
-            print(f"🔍 DEBUG: Result type: {type(result)}")
-            if result:
-                print(f"🔍 DEBUG: Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-            
             if result:
                 # Transform the parser result to MutualFundPortfolio format
-                print("🔄 Starting transformation to MutualFundPortfolio format...")
                 portfolio_data = self._transform_to_mutual_fund_portfolio(result, sheet_file)
-                print(f"🔍 DEBUG: Transformed portfolio_data: {portfolio_data is not None}")
-                if portfolio_data:
-                    print(f"🔍 DEBUG: Holdings count in transformed data: {portfolio_data.get('total_holdings', 'Unknown')}")
                 
                 # Convert result to MutualFundPortfolio object
-                print("🔄 Creating MutualFundPortfolio object...")
                 portfolio = MutualFundPortfolio(**portfolio_data)
-                print(f"✅ MutualFundPortfolio object created successfully")
                 
                 # 🎯 IMPORTANT: Use sheet_id as portfolio_id for proper tracking
                 # This ensures portfolio ID matches sheet ID for easy lookup
