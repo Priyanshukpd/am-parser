@@ -240,7 +240,8 @@ class JobQueue:
                             "sheet_id": sheet_file.file_id,
                             "sheet_name": sheet_file.sheet_name,
                             "portfolio_id": result["portfolio_id"],
-                            "status": "success"
+                            "status": "success",
+                            "deleted": result.get("deleted", {"disk": False, "db": False})
                         })
                     else:
                         progress.failed_items += 1
@@ -269,6 +270,17 @@ class JobQueue:
                 "results": results,
                 "main_file_id": file_id
             }
+
+            # Optional: if all sheets succeeded, delete parent Excel from disk only (keep DB record)
+            if progress.failed_items == 0:
+                try:
+                    if main_file.file_path and Path(main_file.file_path).exists():
+                        Path(main_file.file_path).unlink()
+                        print(f"🧹 Deleted parent Excel from disk: {main_file.file_path}")
+                except Exception as parent_disk_err:
+                    print(f"⚠️  Could not delete parent Excel {main_file.file_path}: {parent_disk_err}")
+                # Keep DB record for tracking
+                final_result["parent_deleted"] = {"disk": True, "db": False}
             
             await self.update_job_status(
                 job.job_id, 

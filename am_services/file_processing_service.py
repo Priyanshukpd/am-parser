@@ -266,7 +266,32 @@ class FileProcessingService:
                 await self.file_upload_repo.update_processing_metadata(sheet_file.file_id, metadata)
                 await self.file_upload_repo.update_file_status(sheet_file.file_id, ProcessingStatus.PARSED)
                 
-                return {"portfolio_id": portfolio_id, "portfolio_data": portfolio_data}
+                # Cleanup: delete the sheet file from disk only (keep DB record for tracking)
+                disk_deleted = False
+                db_deleted = False
+                try:
+                    if sheet_file.file_path and os.path.exists(sheet_file.file_path):
+                        os.remove(sheet_file.file_path)
+                        disk_deleted = True
+                        print(f"🧹 Deleted sheet file from disk: {sheet_file.file_path}")
+                except Exception as disk_err:
+                    print(f"⚠️  Could not delete sheet file {sheet_file.file_path}: {disk_err}")
+
+                # Persist deletion flags to metadata for acknowledgement
+                try:
+                    await self.file_upload_repo.update_processing_metadata(sheet_file.file_id, {
+                        **(metadata or {}),
+                        "deleted_from_disk": disk_deleted,
+                        "deleted_from_db": False
+                    })
+                except Exception as meta_err:
+                    print(f"⚠️  Could not update deletion metadata for {sheet_file.file_id}: {meta_err}")
+
+                return {
+                    "portfolio_id": portfolio_id,
+                    "portfolio_data": portfolio_data,
+                    "deleted": {"disk": disk_deleted, "db": False}
+                }
             else:
                 await self.file_upload_repo.update_file_status(
                     sheet_file.file_id, ProcessingStatus.FAILED, "Failed to parse sheet data"
