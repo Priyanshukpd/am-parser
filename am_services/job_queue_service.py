@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from am_common.job_models import BackgroundJob, JobStatus, JobType, JobProgress, ExcelProcessingJob
 from am_persistence.mutual_fund_service import create_mutual_fund_service
+from am_services.event_logger import EventLogger
+from am_common.event_models import EventType
 
 
 class JobQueue:
@@ -27,6 +29,8 @@ class JobQueue:
         self.collection_name = "background_jobs"
         self.running_jobs: Dict[str, asyncio.Task] = {}
         self.max_concurrent_jobs = 5
+        # Separate DB for logs
+        self.event_logger = EventLogger(mongo_uri=mongodb_uri, db_name="am_logs")
         
     async def create_job(
         self, 
@@ -53,6 +57,14 @@ class JobQueue:
         await collection.insert_one(job.to_mongo_document())
         
         print(f"✅ Created background job: {job_id} ({job_type})")
+        # Log event
+        await self.event_logger.emit(
+            EventType.JOB_CREATED,
+            "success",
+            job_id=job_id,
+            message=f"Background job created ({job_type})",
+            metadata={"input": input_data, "user_id": user_id}
+        )
         return job_id
     
     async def get_job(self, job_id: str) -> Optional[BackgroundJob]:
@@ -96,6 +108,17 @@ class JobQueue:
             {"$set": update_data}
         )
         
+        # Log status change
+        try:
+            await self.event_logger.emit(
+                EventType.JOB_STATUS_CHANGED,
+                status.value if hasattr(status, 'value') else str(status),
+                job_id=job_id,
+                metadata={"progress": progress.dict() if progress else None, "error": error_message}
+            )
+        except Exception:
+            pass
+
         # Send webhook if job is completed
         if status in [JobStatus.COMPLETED, JobStatus.FAILED]:
             await self._send_webhook_notification(job_id)
@@ -104,6 +127,22 @@ class JobQueue:
         """Send webhook notification when job completes"""
         job = await self.get_job(job_id)
         if not job or not job.callback_url:
+            return
+        
+        # Basic validation to avoid exceptions on malformed URLs
+        url = job.callback_url.strip()
+        if not (url.startswith("http://") or url.startswith("https://")):
+            print(f"ℹ️ Skipping webhook for job {job_id}: invalid URL '{url}'. Include http:// or https://")
+            try:
+                await self.event_logger.emit(
+                    EventType.WEBHOOK_SKIPPED,
+                    "info",
+                    job_id=job_id,
+                    message="Invalid webhook URL; missing scheme",
+                    metadata={"url": url}
+                )
+            except Exception:
+                pass
             return
             
         try:
@@ -122,15 +161,34 @@ class JobQueue:
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    job.callback_url,
+                    url,
                     json=payload,
                     headers=headers,
                     timeout=30.0
                 )
                 print(f"✅ Webhook sent for job {job_id}: {response.status_code}")
+                try:
+                    await self.event_logger.emit(
+                        EventType.WEBHOOK_SENT,
+                        "success",
+                        job_id=job_id,
+                        metadata={"status_code": response.status_code, "url": url}
+                    )
+                except Exception:
+                    pass
                 
         except Exception as e:
             print(f"❌ Failed to send webhook for job {job_id}: {e}")
+            try:
+                await self.event_logger.emit(
+                    EventType.WEBHOOK_FAILED,
+                    "failed",
+                    job_id=job_id,
+                    message=str(e),
+                    metadata={"url": url}
+                )
+            except Exception:
+                pass
     
     async def start_job_processor(self):
         """Start the background job processor"""
@@ -243,6 +301,18 @@ class JobQueue:
                             "status": "success",
                             "deleted": result.get("deleted", {"disk": False, "db": False})
                         })
+                        try:
+                            await self.event_logger.emit(
+                                EventType.SHEET_PARSE_COMPLETED,
+                                "success",
+                                job_id=job.job_id,
+                                file_id=file_id,
+                                sheet_id=sheet_file.file_id,
+                                portfolio_id=result.get("portfolio_id"),
+                                metadata={"deleted": result.get("deleted")}
+                            )
+                        except Exception:
+                            pass
                     else:
                         progress.failed_items += 1
                         results.append({
@@ -250,6 +320,16 @@ class JobQueue:
                             "sheet_name": sheet_file.sheet_name,
                             "status": "failed"
                         })
+                        try:
+                            await self.event_logger.emit(
+                                EventType.SHEET_PARSE_COMPLETED,
+                                "failed",
+                                job_id=job.job_id,
+                                file_id=file_id,
+                                sheet_id=sheet_file.file_id
+                            )
+                        except Exception:
+                            pass
                     
                     await self.update_job_status(job.job_id, JobStatus.RUNNING, progress=progress)
                     
@@ -277,6 +357,16 @@ class JobQueue:
                     if main_file.file_path and Path(main_file.file_path).exists():
                         Path(main_file.file_path).unlink()
                         print(f"🧹 Deleted parent Excel from disk: {main_file.file_path}")
+                        try:
+                            await self.event_logger.emit(
+                                EventType.SHEET_DELETED_DISK,
+                                "success",
+                                job_id=job.job_id,
+                                file_id=file_id,
+                                message="Deleted parent Excel from disk"
+                            )
+                        except Exception:
+                            pass
                 except Exception as parent_disk_err:
                     print(f"⚠️  Could not delete parent Excel {main_file.file_path}: {parent_disk_err}")
                 # Keep DB record for tracking

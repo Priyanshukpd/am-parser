@@ -22,6 +22,8 @@ from am_app.app import AMApp
 from am_common.upload_models import FileUpload, ProcessingStatus, FileType
 from am_persistence.mutual_fund_service import MutualFundService
 from am_common.mutual_fund_models import MutualFundPortfolio
+from am_services.event_logger import EventLogger
+from am_common.event_models import EventType
 
 # Import Together AI service
 try:
@@ -40,6 +42,12 @@ class FileProcessingService:
         self.mutual_fund_service = mutual_fund_service
         self.file_upload_service = FileUploadService()
         self.am_app = AMApp()
+        # Initialize event logger (separate DB). Reuse main Mongo URI if available.
+        try:
+            mongo_uri = getattr(mutual_fund_service, 'mongo_uri', "mongodb://localhost:27017")
+            self.event_logger = EventLogger(mongo_uri=mongo_uri, db_name="am_logs")
+        except Exception:
+            self.event_logger = None
     
     async def process_excel_file(self, file_id: str) -> bool:
         """Process an uploaded Excel file by splitting it into sheets"""
@@ -63,6 +71,21 @@ class FileProcessingService:
             # Save sheet files to database
             for sheet_file in sheet_files:
                 await self.file_upload_repo.create_file_upload(sheet_file)
+            # Emit split event
+            try:
+                if self.event_logger:
+                    await self.event_logger.emit(
+                        EventType.EXCEL_SPLIT,
+                        "success",
+                        file_id=file_id,
+                        metadata={
+                            "sheet_count": len(sheet_files),
+                            "sheet_names": [sf.sheet_name for sf in sheet_files],
+                            "sheet_ids": [sf.file_id for sf in sheet_files]
+                        }
+                    )
+            except Exception:
+                pass
             
             # Update parent file status
             await self.file_upload_repo.update_file_status(
@@ -100,6 +123,16 @@ class FileProcessingService:
             )
             
             # Parse the sheet file using AMApp
+            try:
+                if self.event_logger:
+                    await self.event_logger.emit(
+                        EventType.SHEET_PARSE_STARTED,
+                        "running",
+                        sheet_id=sheet_id,
+                        file_id=getattr(sheet_file, 'parent_file_id', None)
+                    )
+            except Exception:
+                pass
             result = await self._parse_sheet_file(sheet_file, method)
             
             if result:
@@ -117,6 +150,21 @@ class FileProcessingService:
                 )
                 
                 print(f"✅ Portfolio saved with ID: {portfolio_id} (matches sheet ID: {sheet_id})")
+                try:
+                    if self.event_logger:
+                        await self.event_logger.emit(
+                            EventType.PORTFOLIO_SAVED,
+                            "success",
+                            sheet_id=sheet_id,
+                            portfolio_id=portfolio_id,
+                            metadata={
+                                "mutual_fund_name": portfolio_data.get("mutual_fund_name"),
+                                "portfolio_date": portfolio_data.get("portfolio_date"),
+                                "total_holdings": portfolio_data.get("total_holdings", 0)
+                            }
+                        )
+                except Exception:
+                    pass
                 
                 # Update sheet file status and metadata
                 metadata = {
@@ -134,12 +182,31 @@ class FileProcessingService:
                 await self.file_upload_repo.update_file_status(
                     sheet_id, ProcessingStatus.FAILED, "Failed to parse sheet data"
                 )
+                try:
+                    if self.event_logger:
+                        await self.event_logger.emit(
+                            EventType.SHEET_PARSE_COMPLETED,
+                            "failed",
+                            sheet_id=sheet_id
+                        )
+                except Exception:
+                    pass
                 return False
                 
         except Exception as e:
             await self.file_upload_repo.update_file_status(
                 sheet_id, ProcessingStatus.FAILED, str(e)
             )
+            try:
+                if self.event_logger:
+                    await self.event_logger.emit(
+                        EventType.SHEET_PARSE_COMPLETED,
+                        "failed",
+                        sheet_id=sheet_id,
+                        message=str(e)
+                    )
+            except Exception:
+                pass
             return False
     
     async def _parse_sheet_file(self, sheet_file: FileUpload, method: str = None) -> Optional[Dict[str, Any]]:
@@ -255,6 +322,21 @@ class FileProcessingService:
                 )
                 
                 print(f"✅ Portfolio saved with ID: {portfolio_id} (matches sheet ID: {sheet_file.file_id})")
+                try:
+                    if self.event_logger:
+                        await self.event_logger.emit(
+                            EventType.PORTFOLIO_SAVED,
+                            "success",
+                            sheet_id=sheet_file.file_id,
+                            portfolio_id=portfolio_id,
+                            metadata={
+                                "mutual_fund_name": portfolio_data.get("mutual_fund_name"),
+                                "portfolio_date": portfolio_data.get("portfolio_date"),
+                                "total_holdings": portfolio_data.get("total_holdings", 0)
+                            }
+                        )
+                except Exception:
+                    pass
                 
                 # Update sheet file status and metadata
                 metadata = {
@@ -274,6 +356,16 @@ class FileProcessingService:
                         os.remove(sheet_file.file_path)
                         disk_deleted = True
                         print(f"🧹 Deleted sheet file from disk: {sheet_file.file_path}")
+                        try:
+                            if self.event_logger:
+                                await self.event_logger.emit(
+                                    EventType.SHEET_DELETED_DISK,
+                                    "success",
+                                    sheet_id=sheet_file.file_id,
+                                    file_id=getattr(sheet_file, 'parent_file_id', None)
+                                )
+                        except Exception:
+                            pass
                 except Exception as disk_err:
                     print(f"⚠️  Could not delete sheet file {sheet_file.file_path}: {disk_err}")
 
@@ -296,6 +388,15 @@ class FileProcessingService:
                 await self.file_upload_repo.update_file_status(
                     sheet_file.file_id, ProcessingStatus.FAILED, "Failed to parse sheet data"
                 )
+                try:
+                    if self.event_logger:
+                        await self.event_logger.emit(
+                            EventType.SHEET_PARSE_COMPLETED,
+                            "failed",
+                            sheet_id=sheet_file.file_id
+                        )
+                except Exception:
+                    pass
                 return None
                 
         except Exception as e:
@@ -303,6 +404,16 @@ class FileProcessingService:
             await self.file_upload_repo.update_file_status(
                 sheet_file.file_id, ProcessingStatus.FAILED, str(e)
             )
+            try:
+                if self.event_logger:
+                    await self.event_logger.emit(
+                        EventType.SHEET_PARSE_COMPLETED,
+                        "failed",
+                        sheet_id=sheet_file.file_id,
+                        message=str(e)
+                    )
+            except Exception:
+                pass
             return None
         """Get complete status information for a file and its sheets"""
         file_upload = await self.file_upload_repo.get_file_upload(file_id)

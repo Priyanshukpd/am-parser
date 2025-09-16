@@ -63,6 +63,15 @@ async def upload_excel_async(
         print(f"✅ Excel split into {sheet_count} sheets")
         
         # Step 2: Create background job for LLM processing
+        # Validate webhook URL if provided
+        normalized_callback = None
+        callback_note = None
+        if callback_url:
+            cb = callback_url.strip()
+            if cb.startswith("http://") or cb.startswith("https://"):
+                normalized_callback = cb
+            else:
+                callback_note = "Ignoring invalid callback_url (missing http/https)."
         job_input = {
             "file_id": main_file_upload.file_id,
             "file_path": main_file_upload.file_path,
@@ -73,7 +82,7 @@ async def upload_excel_async(
         job_id = await job_queue.create_job(
             job_type=JobType.EXCEL_PROCESSING,
             input_data=job_input,
-            callback_url=callback_url,
+            callback_url=normalized_callback,
             user_id=user_id
         )
         
@@ -81,14 +90,22 @@ async def upload_excel_async(
         estimated_minutes = sheet_count * 1.5
         estimated_completion = datetime.now() + timedelta(minutes=estimated_minutes)
         
-        return JobResponse(
+        resp = JobResponse(
             job_id=job_id,
             status=JobStatus.PENDING,
             message=f"Excel file uploaded successfully. Processing {sheet_count} sheets in background.",
             estimated_completion_time=estimated_completion.strftime("%Y-%m-%d %H:%M:%S"),
             status_url=f"/jobs/{job_id}/status",
-            webhook_url=callback_url
+            webhook_url=normalized_callback
         )
+        # If invalid callback provided, include an extra hint field in response
+        if callback_note:
+            # FastAPI response_model ignores extra keys unless we wrap; use JSONResponse for hint
+            return JSONResponse(status_code=200, content={
+                **resp.dict(),
+                "note": callback_note
+            })
+        return resp
         
     except Exception as e:
         print(f"❌ Upload error: {e}")
