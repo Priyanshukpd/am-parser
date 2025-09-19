@@ -3,10 +3,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Iterable
 from datetime import datetime
+import httpx
+import asyncio
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from am_etf.models import ETFInstrument
+from am_etf.models import ETFInstrument, ETFHolding
 
 
 class ETFService:
@@ -32,6 +34,68 @@ class ETFService:
     @property
     def collection(self):
         return self._get_collection()
+
+    async def fetch_holdings_from_api(self, isin: str) -> Optional[List[ETFHolding]]:
+        """Fetch holdings data from moneycontrol API"""
+        if not isin:
+            return None
+            
+        url = f"https://mf.moneycontrol.com/service/etf/v1/getSchemeHoldingData?isin={isin}&key=Stocks"
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                
+                holdings = []
+                # Parse the response structure - adjust based on actual API response
+                if isinstance(data, dict) and 'data' in data:
+                    holdings_data = data['data']
+                elif isinstance(data, list):
+                    holdings_data = data
+                else:
+                    holdings_data = data
+                
+                if isinstance(holdings_data, list):
+                    for holding_data in holdings_data:
+                        holding = ETFHolding(
+                            stock_name=holding_data.get('name') or holding_data.get('stock_name'),
+                            isin_code=holding_data.get('isin_code') or holding_data.get('isin'),
+                            percentage=self._safe_float(holding_data.get('holdingPer') or holding_data.get('percentage') or holding_data.get('weight')),
+                            market_value=self._safe_float(holding_data.get('investedAmount') or holding_data.get('market_value') or holding_data.get('value')),
+                            quantity=self._safe_int(holding_data.get('quantity')),
+                            raw_data=holding_data
+                        )
+                        holdings.append(holding)
+                        
+                print(f"✅ Fetched {len(holdings)} holdings for ISIN {isin}")
+                return holdings
+                
+        except Exception as e:
+            print(f"❌ Failed to fetch holdings for ISIN {isin}: {e}")
+            return None
+    
+    def _safe_float(self, value) -> Optional[float]:
+        """Safely convert to float"""
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                # Remove % sign if present
+                value = value.replace('%', '').strip()
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+    
+    def _safe_int(self, value) -> Optional[int]:
+        """Safely convert to int"""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
 
     async def upsert_etf(self, etf: ETFInstrument):
         col = self._get_collection()
@@ -77,6 +141,59 @@ class ETFService:
     async def close(self):
         if self._client:
             self._client.close()
+
+    async def fetch_and_update_holdings(self, limit: Optional[int] = None) -> int:
+        """Fetch holdings for all ETFs with ISINs and update the database"""
+        col = self._get_collection()
+        
+        # Find ETFs with ISINs that don't have holdings or have old holdings
+        query = {"isin": {"$exists": True, "$ne": None}}
+        cursor = col.find(query)
+        if limit:
+            cursor = cursor.limit(limit)
+        
+        updated_count = 0
+        
+        async for doc in cursor:
+            isin = doc.get('isin')
+            if not isin:
+                continue
+                
+            print(f"🔄 Fetching holdings for {doc.get('symbol', 'Unknown')} (ISIN: {isin})")
+            
+            holdings = await self.fetch_holdings_from_api(isin)
+            
+            if holdings:
+                # Update the document with holdings
+                await col.update_one(
+                    {"_id": doc["_id"]},
+                    {
+                        "$set": {
+                            "holdings": [h.dict() for h in holdings],
+                            "holdings_fetched_at": datetime.utcnow(),
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+                updated_count += 1
+                print(f"✅ Updated holdings for {doc.get('symbol')} - {len(holdings)} holdings")
+            else:
+                print(f"⚠️  No holdings data available for {doc.get('symbol')} (ISIN: {isin})")
+            
+            # Add a small delay to be respectful to the API
+            await asyncio.sleep(1)
+        
+        return updated_count
+
+    async def get_etfs_with_holdings(self, limit: int = 10) -> List[ETFInstrument]:
+        """Get ETFs that have holdings data"""
+        col = self._get_collection()
+        cursor = col.find({"holdings": {"$exists": True, "$ne": None}}).limit(limit)
+        out = []
+        async for doc in cursor:
+            doc.pop("_id", None)
+            out.append(ETFInstrument(**doc))
+        return out
 
 
 def create_etf_service(mongo_uri: str = "mongodb://localhost:27017", db_name: str = "etf_data") -> ETFService:
