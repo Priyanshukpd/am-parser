@@ -12,7 +12,7 @@ from am_etf.models import ETFInstrument, ETFHolding
 
 
 class ETFService:
-    def __init__(self, mongo_uri: str = "mongodb://localhost:27017", db_name: str = "etf_data"):
+    def __init__(self, mongo_uri: str = "mongodb://admin:password123@localhost:27017", db_name: str = "etf_data"):
         self.mongo_uri = mongo_uri
         self.db_name = db_name
         self._client = None
@@ -195,6 +195,16 @@ class ETFService:
             out.append(ETFInstrument(**doc))
         return out
 
+    async def get_etfs_by_asset_class(self, asset_class: str, limit: int = 10) -> List[ETFInstrument]:
+        """Get ETFs filtered by asset class"""
+        col = self._get_collection()
+        cursor = col.find({"asset_class": asset_class}).limit(limit)
+        out = []
+        async for doc in cursor:
+            doc.pop("_id", None)
+            out.append(ETFInstrument(**doc))
+        return out
 
-def create_etf_service(mongo_uri: str = "mongodb://localhost:27017", db_name: str = "etf_data") -> ETFService:
+
+def create_etf_service(mongo_uri: str = "mongodb://admin:password123@localhost:27017", db_name: str = "etf_data") -> ETFService:
     return ETFService(mongo_uri, db_name)
