@@ -24,10 +24,16 @@ from am_services.file_upload_service import FileUploadService
 from am_services.file_processing_service import FileProcessingService
 from am_persistence.file_upload_repository import FileUploadRepository
 
+# Import job API
+from am_api.job_api import router as job_router
+from am_api.etf_api import router as etf_router
+from am_services.job_queue_service import get_job_queue
+
 
 # Global service instances
 service_instance: Optional[MutualFundService] = None
 file_upload_service: Optional[FileUploadService] = None
+background_processor_task: Optional[asyncio.Task] = None
 file_processing_service: Optional[FileProcessingService] = None
 file_upload_repo: Optional[FileUploadRepository] = None
 
@@ -35,7 +41,7 @@ file_upload_repo: Optional[FileUploadRepository] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global service_instance, file_upload_service, file_processing_service, file_upload_repo
+    global service_instance, file_upload_service, file_processing_service, file_upload_repo, background_processor_task
     
     # Startup: Initialize services
     try:
@@ -52,6 +58,11 @@ async def lifespan(app: FastAPI):
             service_instance
         )
         
+        # Start background job processor
+        job_queue = await get_job_queue()
+        background_processor_task = asyncio.create_task(job_queue.start_job_processor())
+        print("✅ Started background job processor")
+        
         print("✅ Connected to MongoDB")
         print("✅ Initialized file upload services")
         yield
@@ -60,6 +71,9 @@ async def lifespan(app: FastAPI):
         raise
     finally:
         # Shutdown: Close services
+        if background_processor_task:
+            background_processor_task.cancel()
+            print("🔐 Background job processor stopped")
         if service_instance:
             await service_instance.close()
             print("🔐 MongoDB connection closed")
@@ -72,6 +86,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Include routers
+app.include_router(job_router)
+app.include_router(etf_router)
 
 
 def get_service() -> MutualFundService:
