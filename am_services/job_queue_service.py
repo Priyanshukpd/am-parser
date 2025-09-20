@@ -75,8 +75,88 @@ class JobQueue:
         if doc:
             doc["job_id"] = doc["_id"]
             doc.pop("_id")
+            
+            # Handle missing or None progress field
+            if "progress" not in doc or doc["progress"] is None:
+                from am_common.job_models import JobProgress
+                doc["progress"] = JobProgress().dict()
+            
             return BackgroundJob(**doc)
         return None
+    
+    async def recover_stuck_jobs(self):
+        """Recover jobs that were stuck due to server restart"""
+        collection = self.mutual_fund_service.database[self.collection_name]
+        
+        # Find jobs that are marked as running but not in our running_jobs dict
+        stuck_jobs = await collection.find({
+            "status": "running",
+            "$or": [
+                {"started_at": {"$lt": datetime.now() - timedelta(minutes=5)}},  # Running for >5 min
+                {"started_at": {"$exists": False}}  # No start time
+            ]
+        }).to_list(None)
+        
+        print(f"🔍 Found {len(stuck_jobs)} potentially stuck jobs")
+        
+        for job_doc in stuck_jobs:
+            job_id = job_doc["_id"]
+            print(f"🚨 Recovering stuck job: {job_id}")
+            
+            # Mark as failed with recovery message
+            await collection.update_one(
+                {"_id": job_id},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "completed_at": datetime.now(),
+                        "error_message": "Job recovery: Server was restarted while job was running"
+                    }
+                }
+            )
+            
+            # Log the recovery
+            await self.event_logger.emit(
+                EventType.JOB_FAILED,
+                "warning", 
+                job_id=job_id,
+                message="Job marked as failed due to server restart"
+            )
+    
+    async def fix_specific_job(self, job_id: str, mark_as_failed: bool = True):
+        """Fix a specific stuck job"""
+        collection = self.mutual_fund_service.database[self.collection_name]
+        
+        if mark_as_failed:
+            # Mark as failed
+            await collection.update_one(
+                {"_id": job_id},
+                {
+                    "$set": {
+                        "status": "failed",
+                        "completed_at": datetime.now(),
+                        "error_message": "Manually fixed: Job was stuck due to server restart"
+                    }
+                }
+            )
+            print(f"🔧 Fixed stuck job {job_id} - marked as failed")
+        else:
+            # Reset to pending to allow retry
+            await collection.update_one(
+                {"_id": job_id},
+                {
+                    "$set": {
+                        "status": "pending",
+                        "error_message": "Reset for retry after server restart"
+                    },
+                    "$unset": {
+                        "started_at": "",
+                        "progress": "",
+                        "completed_at": ""
+                    }
+                }
+            )
+            print(f"🔄 Reset job {job_id} to pending for retry")
     
     async def update_job_status(
         self, 
@@ -242,6 +322,8 @@ class JobQueue:
             
             if job.job_type == JobType.EXCEL_PROCESSING:
                 await self._process_excel_job(job)
+            elif job.job_type == JobType.ETF_HOLDINGS_FETCH:
+                await self._process_etf_holdings_job(job)
             else:
                 raise ValueError(f"Unknown job type: {job.job_type}")
                 
@@ -389,6 +471,116 @@ class JobQueue:
             )
             raise
 
+    async def _process_etf_holdings_job(self, job: BackgroundJob):
+        """Process ETF holdings fetching job with smart caching"""
+        from am_etf.service import ETFService
+        from am_etf.smart_holdings_service import SmartETFHoldingsService
+        
+        # Initialize services
+        etf_service = ETFService()
+        holdings_service = SmartETFHoldingsService()
+        
+        input_data = job.input_data
+        operation = input_data.get("operation", "fetch_all_holdings")
+        force_refresh = input_data.get("force_refresh", False)
+        
+        # Configure cache policy
+        holdings_service.set_cache_policy(expiry_days=1, force_refresh=force_refresh)
+        
+        try:
+            if operation == "fetch_all_holdings":
+                # Fetch holdings for all ETFs with ISINs
+                limit = input_data.get("limit")
+                
+                # Get ETFs with ISINs
+                all_etfs = await etf_service.list(limit=1000)
+                etfs_with_isin = [etf for etf in all_etfs if etf.isin]
+                
+                if limit:
+                    etfs_with_isin = etfs_with_isin[:limit]
+                
+                total_count = len(etfs_with_isin)
+                progress = JobProgress(total_items=total_count, completed_items=0)
+                await self.update_job_status(job.job_id, JobStatus.RUNNING, progress=progress)
+                
+                # Progress callback for smart fetch
+                async def progress_callback(current, total, result):
+                    progress.current_item = f"{result['symbol'] or result['isin']} ({'cache' if result['cache_hit'] else 'API'})"
+                    progress.completed_items = current
+                    await self.update_job_status(job.job_id, JobStatus.RUNNING, progress=progress)
+                
+                # Use smart bulk fetch
+                summary = await holdings_service.bulk_smart_fetch(etfs_with_isin, progress_callback)
+                
+                final_result = {
+                    "total_processed": summary["total_processed"],
+                    "successful_fetches": summary["successful_fetches"],
+                    "failed_fetches": summary["failed_fetches"],
+                    "cache_hits": summary["cache_hits"],
+                    "api_calls": summary["api_calls"],
+                    "cache_hit_rate": summary.get("cache_hit_rate", "0%"),
+                    "api_call_savings": summary.get("api_call_savings", "None"),
+                    "results": summary["results"],
+                    "operation": operation
+                }
+                
+            elif operation == "fetch_single_holdings":
+                # Fetch holdings for a single ETF
+                symbol = input_data["symbol"]
+                isin = input_data["isin"]
+                etf_name = input_data.get("etf_name")
+                
+                progress = JobProgress(total_items=1, completed_items=0)
+                progress.current_item = f"{symbol} ({isin})"
+                await self.update_job_status(job.job_id, JobStatus.RUNNING, progress=progress)
+                
+                print(f"🔄 Smart fetching holdings for {symbol}")
+                
+                result = await holdings_service.smart_fetch_and_store_holdings(
+                    isin=isin,
+                    symbol=symbol,
+                    etf_name=etf_name
+                )
+                
+                progress.completed_items = 1
+                if not result["success"]:
+                    progress.failed_items = 1
+                
+                final_result = {
+                    "symbol": symbol,
+                    "isin": isin,
+                    "success": result["success"],
+                    "cache_hit": result["cache_hit"],
+                    "api_called": result["api_called"],
+                    "reason": result["reason"],
+                    "holdings_count": result["holdings_count"],
+                    "operation": operation
+                }
+            
+            else:
+                raise ValueError(f"Unknown ETF operation: {operation}")
+            
+            await self.update_job_status(
+                job.job_id, 
+                JobStatus.COMPLETED, 
+                progress=progress,
+                result=final_result
+            )
+            
+            print(f"✅ ETF holdings job completed: {job.job_id}")
+            print(f"📊 Cache performance: {final_result.get('cache_hit_rate', 'N/A')} hit rate, {final_result.get('api_call_savings', 'N/A')}")
+            
+        except Exception as e:
+            await self.update_job_status(
+                job.job_id, 
+                JobStatus.FAILED, 
+                error_message=str(e)
+            )
+            raise
+        finally:
+            await etf_service.close()
+            await holdings_service.close()
+
 
 # Global job queue instance
 job_queue: Optional[JobQueue] = None
@@ -401,4 +593,11 @@ async def get_job_queue() -> JobQueue:
         # Initialize with MongoDB connection
         mongodb_uri = "mongodb://admin:password123@localhost:27017"
         job_queue = JobQueue(mongodb_uri)
+        
+        # Recover any stuck jobs from server restarts
+        try:
+            await job_queue.recover_stuck_jobs()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not recover stuck jobs: {e}")
+    
     return job_queue

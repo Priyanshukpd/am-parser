@@ -5,6 +5,7 @@ from typing import List, Optional, Iterable
 from datetime import datetime
 import httpx
 import asyncio
+import random
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -180,8 +181,10 @@ class ETFService:
             else:
                 print(f"⚠️  No holdings data available for {doc.get('symbol')} (ISIN: {isin})")
             
-            # Add a small delay to be respectful to the API
-            await asyncio.sleep(1)
+            # Add a random delay to be respectful to the API and look more natural
+            delay = random.uniform(1.0, 3.0)
+            print(f"⏳ API rate limiting: waiting {delay:.1f} seconds...")
+            await asyncio.sleep(delay)
         
         return updated_count
 

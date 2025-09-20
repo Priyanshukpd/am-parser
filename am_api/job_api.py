@@ -284,3 +284,71 @@ async def list_jobs(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list jobs: {str(e)}"
         )
+
+
+@router.post("/admin/fix-stuck-job/{job_id}")
+async def fix_stuck_job(job_id: str, mark_as_failed: bool = True):
+    """
+    Admin endpoint to fix stuck jobs
+    Used when jobs get stuck due to server restarts
+    """
+    try:
+        job_queue = await get_job_queue()
+        
+        # Check if job exists
+        job = await job_queue.get_job(job_id)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job {job_id} not found"
+            )
+        
+        # Fix the job
+        await job_queue.fix_specific_job(job_id, mark_as_failed)
+        
+        # Get updated job
+        updated_job = await job_queue.get_job(job_id)
+        
+        action = "marked as failed" if mark_as_failed else "reset to pending"
+        
+        return {
+            "message": f"Job {job_id} has been {action}",
+            "job_id": job_id,
+            "old_status": job.status,
+            "new_status": updated_job.status,
+            "error_message": updated_job.error_message,
+            "action_taken": action
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fix job: {str(e)}"
+        )
+
+
+@router.post("/admin/recover-stuck-jobs") 
+async def recover_all_stuck_jobs():
+    """
+    Admin endpoint to recover all stuck jobs
+    Useful after server restarts
+    """
+    try:
+        job_queue = await get_job_queue()
+        
+        # This will run the recovery process
+        await job_queue.recover_stuck_jobs()
+        
+        return {
+            "message": "Stuck job recovery process completed",
+            "timestamp": datetime.now(),
+            "action": "All stuck jobs have been recovered"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to recover stuck jobs: {str(e)}"
+        )

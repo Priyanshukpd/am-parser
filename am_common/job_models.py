@@ -23,6 +23,7 @@ class JobType(str, Enum):
     EXCEL_PROCESSING = "excel_processing"
     SHEET_PARSING = "sheet_parsing"
     BATCH_PROCESSING = "batch_processing"
+    ETF_HOLDINGS_FETCH = "etf_holdings_fetch"
 
 
 class JobProgress(BaseModel):
