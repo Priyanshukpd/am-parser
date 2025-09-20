@@ -70,11 +70,9 @@ class ETFService:
                         )
                         holdings.append(holding)
                         
-                print(f"✅ Fetched {len(holdings)} holdings for ISIN {isin}")
                 return holdings
                 
         except Exception as e:
-            print(f"❌ Failed to fetch holdings for ISIN {isin}: {e}")
             return None
     
     def _safe_float(self, value) -> Optional[float]:
@@ -159,9 +157,6 @@ class ETFService:
             isin = doc.get('isin')
             if not isin:
                 continue
-                
-            print(f"🔄 Fetching holdings for {doc.get('symbol', 'Unknown')} (ISIN: {isin})")
-            
             holdings = await self.fetch_holdings_from_api(isin)
             
             if holdings:
@@ -177,13 +172,9 @@ class ETFService:
                     }
                 )
                 updated_count += 1
-                print(f"✅ Updated holdings for {doc.get('symbol')} - {len(holdings)} holdings")
-            else:
-                print(f"⚠️  No holdings data available for {doc.get('symbol')} (ISIN: {isin})")
             
             # Add a random delay to be respectful to the API and look more natural
             delay = random.uniform(1.0, 3.0)
-            print(f"⏳ API rate limiting: waiting {delay:.1f} seconds...")
             await asyncio.sleep(delay)
         
         return updated_count

@@ -280,7 +280,6 @@ class SmartETFHoldingsService:
                 import asyncio
                 # Random delay between 1-3 seconds to make requests look more natural
                 delay = random.uniform(1.0, 3.0)
-                print(f"⏳ API rate limiting: waiting {delay:.1f} seconds...")
                 await asyncio.sleep(delay)
         
         # Calculate efficiency
