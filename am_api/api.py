@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 import asyncio
 from contextlib import asynccontextmanager
+import os
 
 # Add parent directory to path to find external modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -45,9 +46,15 @@ async def lifespan(app: FastAPI):
     
     # Startup: Initialize services
     try:
+        # Get MongoDB connection details from environment variables
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://admin:password123@localhost:27017")
+        mongo_db = os.getenv("MONGO_DB", "mutual_funds")
+        
+        print(f"🔌 Connecting to MongoDB: {mongo_uri}")
+        
         service_instance = create_mutual_fund_service(
-            mongo_uri="mongodb://admin:password123@localhost:27017",
-            db_name="mutual_funds"
+            mongo_uri=mongo_uri,
+            db_name=mongo_db
         )
         
         # Initialize file upload services

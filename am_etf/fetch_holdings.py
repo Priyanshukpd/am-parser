@@ -27,9 +27,10 @@ async def fetch_holdings(mongo_uri: str, db_name: str, limit: int):
 
 
 def main():
+    import os
     parser = argparse.ArgumentParser(description="Fetch ETF holdings data from moneycontrol API")
-    parser.add_argument("--mongo-uri", default="mongodb://admin:password123@localhost:27017", help="Mongo connection URI")
-    parser.add_argument("--db-name", default="etf_data", help="Mongo database name for ETF data")
+    parser.add_argument("--mongo-uri", default=os.getenv("MONGO_URI", "mongodb://admin:password123@localhost:27017"), help="Mongo connection URI")
+    parser.add_argument("--db-name", default=os.getenv("MONGO_DB", "etf_data"), help="Mongo database name for ETF data")
     parser.add_argument("--limit", type=int, help="Limit number of ETFs to process (default: all)")
     args = parser.parse_args()
 

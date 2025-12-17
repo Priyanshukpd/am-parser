@@ -5,6 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 import httpx
 import asyncio
+import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -14,7 +15,12 @@ from am_etf.holdings_models import ETFHoldingsData, ETFHoldingRecord
 class ETFHoldingsService:
     """Service dedicated to fetching and storing ETF holdings data"""
     
-    def __init__(self, mongo_uri: str = "mongodb://admin:password123@localhost:27017", db_name: str = "etf_data"):
+    def __init__(self, mongo_uri: str = None, db_name: str = None):
+        # Use environment variables or defaults
+        if mongo_uri is None:
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://admin:password123@localhost:27017")
+        if db_name is None:
+            db_name = os.getenv("MONGO_DB", "etf_data")
         self.mongo_uri = mongo_uri
         self.db_name = db_name
         self._client = None
