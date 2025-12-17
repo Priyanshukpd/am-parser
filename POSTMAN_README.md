@@ -76,8 +76,13 @@ docker-compose up -d
 - **Cache Statistics** - Check cache efficiency (fresh vs stale data)
 
 ### 📂 Background Jobs
-- **List All Jobs** - View background job status
-- **Get Job by ID** - Get specific job details
+- **Upload Excel (Async)** - Upload file for background processing (returns job_id immediately)
+- **List All Jobs** - View all background jobs and their status
+- **Get Job Status** - Check progress of a running job
+- **Get Job Result** - Retrieve result of a completed job
+- **Cancel Job** - Cancel a pending or running job
+- **Admin - Fix Stuck Job** - Manually fix a stuck job
+- **Admin - Recover All Stuck** - Trigger recovery for all stuck jobs
 
 ## Testing Workflow
 
