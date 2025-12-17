@@ -2,6 +2,7 @@
 
 ## 🚀 Quick Start
 
+
 ### 1. Start the API Server
 ```bash
 # Method 1: Using the start script

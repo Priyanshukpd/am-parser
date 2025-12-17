@@ -536,26 +536,106 @@
       "name": "Background Jobs",
       "item": [
         {
+          "name": "Upload Excel (Async)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Excel file to process"
+                },
+                {
+                  "key": "parse_method",
+                  "value": "together",
+                  "type": "text",
+                  "description": "Parse method (together/manual)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:9000/jobs/upload-excel-async",
+              "host": [
+                "http://localhost:9000"
+              ],
+              "path": [
+                "jobs",
+                "upload-excel-async"
+              ]
+            },
+            "description": "Upload Excel file for background processing. Returns job_id immediately."
+          }
+        },
+        {
           "name": "List All Jobs",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:9000/jobs",
+              "raw": "http://localhost:9000/jobs?limit=20",
               "host": [
                 "http://localhost:9000"
               ],
               "path": [
                 "jobs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Max jobs to return"
+                }
               ]
             },
             "description": "List all background jobs and their status"
           }
         },
         {
-          "name": "Get Job by ID",
+          "name": "Get Job Status",
           "request": {
             "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9000/jobs/{{job_id}}/status",
+              "host": [
+                "http://localhost:9000"
+              ],
+              "path": [
+                "jobs",
+                "{{job_id}}",
+                "status"
+              ]
+            },
+            "description": "Get current status and progress of a background job"
+          }
+        },
+        {
+          "name": "Get Job Result",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9000/jobs/{{job_id}}/result",
+              "host": [
+                "http://localhost:9000"
+              ],
+              "path": [
+                "jobs",
+                "{{job_id}}",
+                "result"
+              ]
+            },
+            "description": "Get final result of a completed job"
+          }
+        },
+        {
+          "name": "Cancel Job",
+          "request": {
+            "method": "DELETE",
             "header": [],
             "url": {
               "raw": "http://localhost:9000/jobs/{{job_id}}",
@@ -567,7 +647,53 @@
                 "{{job_id}}"
               ]
             },
-            "description": "Get details of a specific background job"
+            "description": "Cancel a pending or running job"
+          }
+        },
+        {
+          "name": "Admin - Fix Stuck Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9000/jobs/admin/fix-stuck-job/{{job_id}}?mark_as_failed=true",
+              "host": [
+                "http://localhost:9000"
+              ],
+              "path": [
+                "jobs",
+                "admin",
+                "fix-stuck-job",
+                "{{job_id}}"
+              ],
+              "query": [
+                {
+                  "key": "mark_as_failed",
+                  "value": "true",
+                  "description": "true=fail, false=retry"
+                }
+              ]
+            },
+            "description": "Manually fix a stuck job (e.g. after server restart)"
+          }
+        },
+        {
+          "name": "Admin - Recover All Stuck",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9000/jobs/admin/recover-stuck-jobs",
+              "host": [
+                "http://localhost:9000"
+              ],
+              "path": [
+                "jobs",
+                "admin",
+                "recover-stuck-jobs"
+              ]
+            },
+            "description": "Trigger recovery process for all stuck jobs"
           }
         }
       ]

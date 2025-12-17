@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Start the Mutual Fund Portfolio API Server
-"""
+
 
 import sys
 from pathlib import Path
