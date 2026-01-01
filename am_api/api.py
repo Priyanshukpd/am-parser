@@ -3,7 +3,7 @@ FastAPI REST API for Mutual Fund Portfolio Service
 Provides HTTP endpoints for saving and retrieving mutual fund portfolio data
 """
 
-from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, status, Depends, UploadFile, File, Form, BackgroundTasks, APIRouter
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 import sys
@@ -94,9 +94,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex="https?://.*", # Flexible for dev/prod while allowing credentials
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include routers
-app.include_router(job_router)
-app.include_router(etf_router)
+app.include_router(job_router, prefix="/v1")
+app.include_router(etf_router, prefix="/v1")
+
+
+
 
 
 def get_service() -> MutualFundService:
@@ -139,6 +151,10 @@ def get_file_processing_service() -> FileProcessingService:
     return file_processing_service
 
 
+# Create Router for Mutual Fund endpoints
+mutual_fund_router = APIRouter(tags=["Mutual Funds"])
+
+
 @app.get("/", response_model=dict)
 async def root():
     """Root endpoint with API information"""
@@ -156,7 +172,7 @@ async def root():
     }
 
 
-@app.post("/portfolios", response_model=dict, status_code=status.HTTP_201_CREATED)
+@mutual_fund_router.post("/portfolios", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def save_portfolio(
     portfolio_data: dict,
     service: MutualFundService = Depends(get_service)
@@ -212,7 +228,7 @@ async def save_portfolio(
         )
 
 
-@app.get("/portfolios/{portfolio_id}", response_model=dict)
+@mutual_fund_router.get("/portfolios/{portfolio_id}", response_model=dict)
 async def get_portfolio(
     portfolio_id: str,
     service: MutualFundService = Depends(get_service)
@@ -255,7 +271,7 @@ async def get_portfolio(
         )
 
 
-@app.get("/portfolios", response_model=dict)
+@mutual_fund_router.get("/portfolios", response_model=dict)
 async def list_portfolios(
     fund_name: Optional[str] = None,
     limit: int = 50,
@@ -295,7 +311,7 @@ async def list_portfolios(
         )
 
 
-@app.get("/portfolios/search", response_model=dict)
+@mutual_fund_router.get("/portfolios/search", response_model=dict)
 async def search_portfolios(
     fund_name: str,
     service: MutualFundService = Depends(get_service)
@@ -333,7 +349,7 @@ async def search_portfolios(
         )
 
 
-@app.get("/holdings/{isin_code}", response_model=dict)
+@mutual_fund_router.get("/holdings/{isin_code}", response_model=dict)
 async def get_holdings_by_isin(
     isin_code: str,
     service: MutualFundService = Depends(get_service)
@@ -364,7 +380,7 @@ async def get_holdings_by_isin(
         )
 
 
-@app.get("/funds/{fund_name}/statistics", response_model=dict)
+@mutual_fund_router.get("/funds/{fund_name}/statistics", response_model=dict)
 async def get_fund_statistics(
     fund_name: str,
     service: MutualFundService = Depends(get_service)
@@ -444,7 +460,7 @@ async def health_check(service: MutualFundService = Depends(get_service)):
 # FILE UPLOAD ENDPOINTS
 # ================================
 
-@app.post("/upload", response_model=dict)
+@mutual_fund_router.post("/upload", response_model=dict)
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -575,7 +591,7 @@ async def upload_file(
         )
 
 
-@app.post("/upload/excel", response_model=dict)
+@mutual_fund_router.post("/upload/excel", response_model=dict)
 async def upload_excel_complete(
     file: UploadFile = File(...),
     parse_method: str = Form(default="together"),
@@ -725,7 +741,7 @@ async def upload_excel_complete(
         )
 
 
-@app.post("/process/{file_id}")
+@mutual_fund_router.post("/process/{file_id}")
 async def process_file(
     file_id: str,
     background_tasks: BackgroundTasks
@@ -767,7 +783,7 @@ async def process_file(
         )
 
 
-@app.post("/parse/{sheet_id}")
+@mutual_fund_router.post("/parse/{sheet_id}")
 async def parse_sheet(
     sheet_id: str,
     background_tasks: BackgroundTasks,
@@ -828,7 +844,7 @@ async def parse_sheet(
         )
 
 
-@app.get("/files", response_model=FileListResponse)
+@mutual_fund_router.get("/files", response_model=FileListResponse)
 async def list_files(
     skip: int = 0,
     limit: int = 100,
@@ -870,7 +886,7 @@ async def list_files(
         )
 
 
-@app.get("/files/{file_id}")
+@mutual_fund_router.get("/files/{file_id}")
 async def get_file_status(file_id: str):
     """
     Get detailed status information for a file and its sheets
@@ -896,7 +912,7 @@ async def get_file_status(file_id: str):
         )
 
 
-@app.post("/parse-all/{file_id}")
+@mutual_fund_router.post("/parse-all/{file_id}")
 async def parse_all_sheets(
     file_id: str,
     background_tasks: BackgroundTasks,
@@ -955,6 +971,11 @@ async def parse_all_sheets(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process all sheets: {str(e)}"
         )
+
+
+
+# Include the mutual fund router last, after all endpoints are defined
+app.include_router(mutual_fund_router, prefix="/v1")
 
 
 if __name__ == "__main__":

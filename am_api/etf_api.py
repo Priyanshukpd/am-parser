@@ -23,8 +23,16 @@ from am_etf.holdings_service import ETFHoldingsService
 from am_etf.smart_holdings_service import SmartETFHoldingsService
 
 
-router = APIRouter(prefix="/etf", tags=["ETF Holdings"])
 
+# Removing /etf prefix to align with global /v1 structure (will be included with /v1 in api.py)
+router = APIRouter(tags=["ETF Holdings"])
+
+# Simple in-memory cache for ETF list
+_etf_list_cache = {
+    "data": [],
+    "last_updated": None
+}
+CACHE_DURATION_MINUTES = 60
 
 @router.post("/fetch-all-holdings", response_model=JobResponse)
 async def fetch_all_etf_holdings(
@@ -130,21 +138,35 @@ async def search_etfs(
     Search ETFs by symbol, name, or ISIN
     """
     try:
-        etf_service = ETFService()
+        global _etf_list_cache
         
-        # Get all ETFs and filter by query
-        all_etfs = await etf_service.list(limit=1000)
+        # Check cache validity
+        cache_valid = False
+        if _etf_list_cache["data"] and _etf_list_cache["last_updated"]:
+            age = datetime.now() - _etf_list_cache["last_updated"]
+            if age < timedelta(minutes=CACHE_DURATION_MINUTES):
+                cache_valid = True
+        
+        all_etfs = []
+        if cache_valid:
+            all_etfs = _etf_list_cache["data"]
+            # print("✅ Using cached ETF list")
+        else:
+            # print("🔄 Refreshing ETF list cache")
+            etf_service = ETFService()
+            all_etfs = await etf_service.list(limit=2000) # Increased limit for full coverage
+            await etf_service.close()
+            
+            # Update cache
+            _etf_list_cache["data"] = all_etfs
+            _etf_list_cache["last_updated"] = datetime.now()
         
         query_lower = query.lower()
         matching_etfs = []
         
-        for etf in all_etfs:
-            # Check if query matches symbol, name, or ISIN
-            if (
-                (etf.symbol and query_lower in etf.symbol.lower()) or
-                (etf.name and query_lower in etf.name.lower()) or
-                (etf.isin and query_lower in etf.isin.lower())
-            ):
+        # If query is empty or "*", return all (up to limit)
+        if not query or query == "*":
+             for etf in all_etfs:
                 matching_etfs.append({
                     "symbol": etf.symbol,
                     "name": etf.name,
@@ -152,17 +174,33 @@ async def search_etfs(
                     "asset_class": etf.asset_class,
                     "market_cap_category": etf.market_cap_category
                 })
-                
                 if len(matching_etfs) >= limit:
                     break
-        
-        await etf_service.close()
+        else:
+            for etf in all_etfs:
+                # Check if query matches symbol, name, or ISIN
+                if (
+                    (etf.symbol and query_lower in etf.symbol.lower()) or
+                    (etf.name and query_lower in etf.name.lower()) or
+                    (etf.isin and query_lower in etf.isin.lower())
+                ):
+                    matching_etfs.append({
+                        "symbol": etf.symbol,
+                        "name": etf.name,
+                        "isin": etf.isin,
+                        "asset_class": etf.asset_class,
+                        "market_cap_category": etf.market_cap_category
+                    })
+                    
+                    if len(matching_etfs) >= limit:
+                        break
         
         return {
             "query": query,
             "total_found": len(matching_etfs),
             "etfs": matching_etfs
         }
+
         
     except Exception as e:
         print(f"❌ ETF search error: {e}")

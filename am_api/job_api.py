@@ -18,7 +18,7 @@ from am_persistence.file_upload_repository import FileUploadRepository
 from am_persistence import create_mutual_fund_service
 
 
-router = APIRouter(prefix="/jobs", tags=["Background Jobs"])
+router = APIRouter(tags=["Background Jobs"])
 
 
 @router.post("/upload-excel-async", response_model=JobResponse)
